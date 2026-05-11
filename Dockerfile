@@ -94,6 +94,6 @@ USER salte
 
 # ----------------------------------------------------------------------------
 # 8. Comando padrão — headless, picamera2 (IMX500 como câmera comum)
-#    Override via `command:` no docker-compose.yml para --display, --no-picamera etc.
+#    Override via `command:` no docker-compose.yml para --display, webcam etc.
 # ----------------------------------------------------------------------------
-CMD ["python3", "run_host.py", "--model-dir", "/app"]
+CMD ["python3", "run_host.py", "--model-dir", "/app", "--picamera"]
