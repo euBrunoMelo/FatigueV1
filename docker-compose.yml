@@ -6,8 +6,9 @@
 #   docker compose logs -f         (follow logs)
 #   docker compose down            (stop)
 #
-# Para rodar com --display (HUD OpenCV) ou --no-picamera (webcam USB dev),
-# edite o bloco `command:` abaixo.
+# Default deste compose: picamera2 + libcamera (IMX500 como câmera comum).
+# Para HUD OpenCV adicione --display no command (ver bloco no fim do arquivo).
+# Para testar com webcam USB, remova --picamera do command.
 
 services:
   salte-tev8:
@@ -54,16 +55,24 @@ services:
     # ── Restart ─────────────────────────────────────────────────────────
     restart: unless-stopped
 
-    # ── Override de comando ─────────────────────────────────────────────
-    # Default do Dockerfile: python3 run_host.py --model-dir /app
+    # ── Comando ─────────────────────────────────────────────────────────
+    # --picamera força o uso de picamera2 + libcamera (IMX500). Sem essa
+    # flag o run_host.py cai em cv2.VideoCapture(0), que abre /dev/video0
+    # sem ISP/AE corretos e perde FPS — fonte conhecida de glitches do
+    # FaceMesh durante o warm-up.
+    command:
+      - "python3"
+      - "run_host.py"
+      - "--model-dir"
+      - "/app"
+      - "--picamera"
+    # Exemplos de overrides úteis (adicione no command acima):
+    #   "--warmup-sec", "60"        warm-up mais curto para testes rápidos
+    #   "--threshold", "0.45"       override do limiar do MLP
+    #   "--display"                 abre janela OpenCV (HUD) — exige X11 do host
     #
-    # Exemplos:
-    #   command: ["python3", "run_host.py", "--model-dir", "/app", "--warmup-sec", "60"]
-    #   command: ["python3", "run_host.py", "--model-dir", "/app", "--threshold", "0.45"]
-    #
-    # Para --display é preciso também expor o X do host (descomente environment/volumes):
+    # Para --display, exponha também o X do host (descomente environment/volumes):
     # environment:
     #   - DISPLAY=${DISPLAY}
     # volumes:
     #   - /tmp/.X11-unix:/tmp/.X11-unix
-    # command: ["python3", "run_host.py", "--model-dir", "/app", "--display"]
