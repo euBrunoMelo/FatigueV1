@@ -65,6 +65,8 @@ from salte_edge_runtime import (  # noqa: E402
     EdgeOptimizedInference,
     InferenceGuardrails,
 )
+from video_recorder import SegmentedVideoRecorder  # noqa: E402
+from event_logger import EventLogger  # noqa: E402
 
 logger = logging.getLogger("SALTE.host")
 
@@ -318,6 +320,30 @@ def main() -> int:
         help="Log DEBUG de sem_rosto/olho_aberto/olho_fechado a cada frame (ative --log-level DEBUG).",
     )
     parser.add_argument("--log-level", default="INFO")
+    parser.add_argument(
+        "--record",
+        action="store_true",
+        help="Grava o stream da câmera em segmentos de vídeo no disco "
+             "(--record-dir) e gera índice de transições SAFE↔DANGER (--events-dir).",
+    )
+    parser.add_argument(
+        "--record-dir",
+        default=str(HERE / "recordings"),
+        help="Raiz dos segmentos gravados. Subpastas YYYY-MM-DD/ são criadas "
+             "automaticamente. Default: ./recordings",
+    )
+    parser.add_argument(
+        "--events-dir",
+        default=str(HERE / "events"),
+        help="Raiz do JSONL de eventos. Arquivos YYYY-MM-DD.jsonl. "
+             "Default: ./events",
+    )
+    parser.add_argument(
+        "--segment-sec",
+        type=float,
+        default=60.0,
+        help="Duração de cada segmento de vídeo em segundos. Default: 60.",
+    )
     args = parser.parse_args()
 
     logging.basicConfig(
@@ -408,6 +434,28 @@ def main() -> int:
         loop_video=not args.no_loop_video,
     )
 
+    # --- Gravação opcional ---
+    # Recorder e event_logger são opt-in via --record. Mantemos None quando
+    # desligados para não pagar custo de cópia/fila no enqueue.
+    recorder: Optional[SegmentedVideoRecorder] = None
+    event_logger: Optional[EventLogger] = None
+    if args.record:
+        # frame_size segue (width, height) do cv2.VideoWriter. Usamos a
+        # resolução efetiva da câmera (que pode ter sido sobrescrita pelo
+        # próprio arquivo de vídeo no modo --video).
+        recorder = SegmentedVideoRecorder(
+            root_dir=Path(args.record_dir),
+            fps=effective_fps,
+            frame_size=(cam.width, cam.height),
+            segment_sec=args.segment_sec,
+        )
+        recorder.start()
+        event_logger = EventLogger(
+            root_dir=Path(args.events_dir),
+            recorder=recorder,
+        )
+        event_logger.open()
+
     # --- Sinais ---
     stop = {"flag": False}
 
@@ -444,6 +492,12 @@ def main() -> int:
 
             frames_seen += 1
             frames_in_window += 1
+
+            # IMPORTANTE: enfileirar o frame cru ANTES de qualquer mutação
+            # (HUD desenha in-place no array). O recorder faz frame.copy()
+            # internamente, então não bloqueia nem polui o pipeline.
+            if recorder is not None:
+                recorder.enqueue(frame)
 
             feats_frame = extractor.process_frame(frame)
             if not feats_frame.face_detected:
@@ -533,6 +587,18 @@ def main() -> int:
                     voted,
                 )
 
+                # Índice de eventos: registra somente transições SAFE↔DANGER.
+                # A detecção fica encapsulada dentro do EventLogger.
+                if event_logger is not None:
+                    event_logger.log_prediction(
+                        voted_label=voted,
+                        frame_idx=feats_frame.frame_idx,
+                        mlp_label=mlp_label,
+                        mlp_conf=mlp_conf,
+                        rules_level=rules_result["level"],
+                        alerts=rules_result.get("alerts") or [],
+                    )
+
                 if args.display:
                     _draw_hud(frame, feats_frame, calibrator, feats_dict, {
                         "label": final_label,
@@ -563,7 +629,14 @@ def main() -> int:
                 frames_in_window = 0
 
     finally:
+        # Ordem: para a câmera primeiro (interrompe novos frames), depois
+        # drena o recorder, depois fecha o JSONL. Inverter pode causar perda
+        # de frames já enfileirados ou JSONL aberto sem flush.
         cam.close()
+        if recorder is not None:
+            recorder.close()
+        if event_logger is not None:
+            event_logger.close()
         if args.display:
             cv2.destroyAllWindows()
 
