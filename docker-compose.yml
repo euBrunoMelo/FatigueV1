@@ -34,13 +34,27 @@ services:
       - 'c *:* rmw'        # rw/mknod em todos char devices
 
     # ── Volumes ─────────────────────────────────────────────────────────
-    # /dev      → nós de câmera/codec/dma_heap/dri (pareado com cgroup rule)
-    # /run/udev → read-only, libcamera enumera câmeras a partir daí
-    # ./logs    → opcional, para logs persistentes fora do container
+    # /dev          → nós de câmera/codec/dma_heap/dri (pareado com cgroup rule)
+    # /run/udev     → read-only, libcamera enumera câmeras a partir daí
+    # ./logs        → opcional, para logs persistentes fora do container
+    # /home/.../recordings  → NVMe de 258 GB, segmentos de vídeo (mp4/avi)
+    # /home/.../events      → NVMe, JSONL de transições SAFE↔DANGER
+    #
+    # IMPORTANTE — permissões: o container roda como uid do usuário `salte`
+    # (criado no Dockerfile). Antes do primeiro `up`, garanta que os
+    # diretórios do host existem e são graváveis pelo container:
+    #
+    #   mkdir -p /home/raspberrypi5/video/FATIGUEV1/recordings \
+    #            /home/raspberrypi5/video/FATIGUEV1/events
+    #   chmod 0777 /home/raspberrypi5/video/FATIGUEV1/recordings \
+    #              /home/raspberrypi5/video/FATIGUEV1/events
+    #   # (alternativa mais restrita: chown ao uid de `salte` dentro do container)
     volumes:
       - /dev:/dev
       - /run/udev:/run/udev:ro
       - ./logs:/app/logs
+      - /home/raspberrypi5/video/FATIGUEV1/recordings:/app/recordings
+      - /home/raspberrypi5/video/FATIGUEV1/events:/app/events
 
     # ── Segurança ───────────────────────────────────────────────────────
     # Necessário para ioctls DRM/KMS do libcamera.
@@ -66,10 +80,12 @@ services:
       - "--model-dir"
       - "/app"
       - "--picamera"
+      - "--record"
     # Exemplos de overrides úteis (adicione no command acima):
     #   "--warmup-sec", "60"        warm-up mais curto para testes rápidos
     #   "--threshold", "0.45"       override do limiar do MLP
     #   "--display"                 abre janela OpenCV (HUD) — exige X11 do host
+    #   "--segment-sec", "30"       segmentos mais curtos (default 60s)
     #
     # Para --display, exponha também o X do host (descomente environment/volumes):
     # environment:
