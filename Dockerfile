@@ -77,6 +77,8 @@ COPY feature_extractor_rt.py /app/
 COPY subject_calibrator_rt.py /app/
 COPY window_factory_rt.py    /app/
 COPY salte_edge_runtime.py   /app/
+COPY video_recorder.py       /app/
+COPY event_logger.py         /app/
 
 # Artefatos ONNX + config (modelo TEV8 e face mesh)
 COPY best_model.onnx         /app/
@@ -85,7 +87,7 @@ COPY inference_config.json   /app/
 COPY blazeface_detector.onnx /app/
 COPY face_mesh_landmark.onnx /app/
 
-RUN mkdir -p /app/logs && chown -R salte:salte /app
+RUN mkdir -p /app/logs /app/recordings /app/events && chown -R salte:salte /app
 
 # ----------------------------------------------------------------------------
 # 7. Troca para usuário não-root
